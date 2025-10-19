@@ -11,18 +11,19 @@ keywords = ["opentelemetry", "logging", "tracing"]
 homepage = "https://github.com/tinyurl-pestebani/rust-otel-setup"
 
 [dependencies]
-opentelemetry = { version = "0.30.0", features = ["metrics", "logs"] }
-opentelemetry-gcloud-trace = "0.20.0"
-opentelemetry-appender-tracing = "0.30.1"
-opentelemetry-otlp = { version= "0.30.0", features = ["metrics", "logs", "grpc-tonic"] }
-opentelemetry-stdout = "0.30.0"
+google-cloud-auth = "1.0.1"
+opentelemetry = { version = "0.31.0", features = ["metrics", "logs"] }
+opentelemetry-appender-tracing = "0.31.1"
+opentelemetry-otlp = { version= "0.31.0", features = ["metrics", "logs", "grpc-tonic", "tls", "tls-roots"] }
+opentelemetry-stdout = "0.31.0"
 tracing = "0.1.41"
-opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio"] }
-tokio = { version = "1.45.1", features = ["rt"] }
-tracing-subscriber = { version = "0.3.19" , features = ["env-filter"]}
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
+tokio = { version = "1.48.0", features = ["rt"] }
+tracing-subscriber = { version = "0.3.20" , features = ["env-filter"]}
 tracing-loki = "0.2.6"
-tracing-opentelemetry = "0.31.0"
-anyhow = "1.0.99"
+tracing-opentelemetry = "0.32.0"
+anyhow = "1.0.100"
+tonic = "0.14.2"
 
 
 

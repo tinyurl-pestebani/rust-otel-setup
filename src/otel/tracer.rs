@@ -1,18 +1,21 @@
 use opentelemetry_sdk::trace::TraceError;
-use opentelemetry_gcloud_trace::GcpCloudTraceExporter;
-use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry_otlp::{SpanExporter, WithExportConfig, WithTonicConfig};
+use opentelemetry_otlp::tonic_types::transport::ClientTlsConfig;
 use opentelemetry_sdk::trace::SdkTracerProvider as SDKTracerProvider;
 use opentelemetry_stdout as stdout;
+use crate::authentication::CommonInterceptor;
 use crate::config::{OTLPTraceConfig, TraceConfig};
 use crate::otel::resource::get_resource;
 
 /// Initializes the OTLP tracer provider.
-fn init_otlp_tracer_provider(otlp_config: &OTLPTraceConfig, service_name: &String) -> Result<SDKTracerProvider, TraceError> {
+async fn init_otlp_tracer_provider(otlp_config: &OTLPTraceConfig, service_name: &String) -> Result<SDKTracerProvider, TraceError> {
     let exporter = SpanExporter::builder()
         .with_tonic()
         .with_endpoint(otlp_config.endpoint.clone())
+        .with_tls_config(ClientTlsConfig::new().with_native_roots())
+        .with_interceptor(CommonInterceptor::new(&otlp_config.interceptor))
         .build()
-        .expect("Failed to create span exporter");
+        .map_err(|err| TraceError::from(err.to_string()))?;
 
     Ok(SDKTracerProvider::builder()
         .with_resource(get_resource(service_name))
@@ -20,17 +23,6 @@ fn init_otlp_tracer_provider(otlp_config: &OTLPTraceConfig, service_name: &Strin
         .build())
 }
 
-/// Initializes the GCP tracer provider.
-async fn init_gcp_tracer_provider(service_name: &String) -> Result<SDKTracerProvider, TraceError> {
-    let google_project_id = std::env::var("GOOGLE_PROJECT_ID").unwrap();
-    let exporter = GcpCloudTraceExporter::new(google_project_id.as_str(), get_resource(service_name)).await?;
-
-    Ok(
-        opentelemetry_sdk::trace::SdkTracerProvider::builder()
-            .with_batch_exporter(exporter)
-            .build()
-    )
-}
 
 /// Initializes the SDK tracer provider with a simple exporter to standard output.
 fn init_sdk_tracer_provider() -> Result<SDKTracerProvider, TraceError> {
@@ -47,8 +39,7 @@ fn init_sdk_tracer_provider() -> Result<SDKTracerProvider, TraceError> {
 /// * `service_name` - The name of the service.
 pub async fn get_tracer_provider(trace_config: &TraceConfig, service_name: &String) -> Result<SDKTracerProvider, TraceError> {
     match trace_config {
-        TraceConfig::Jaeger(otlp_config) => init_otlp_tracer_provider(otlp_config, service_name),
-        TraceConfig::GCP => init_gcp_tracer_provider(service_name).await,
+        TraceConfig::OTLP(otlp_config) => init_otlp_tracer_provider(otlp_config, service_name).await,
         TraceConfig::StdOut => init_sdk_tracer_provider(),
     }
 }
@@ -61,8 +52,9 @@ mod tests {
     async fn test_tracer_provider() {
         let otlp_config = OTLPTraceConfig {
             endpoint: "http://localhost:4317".to_string(),
+            interceptor: crate::config::OTLPTraceInterceptor::None,
         };
-        let result = get_tracer_provider(&TraceConfig::Jaeger(otlp_config), &"basic-axum-example".into()).await;
+        let result = get_tracer_provider(&TraceConfig::OTLP(otlp_config), &"basic-axum-example".into()).await;
 
         assert!(result.is_ok());
     }
