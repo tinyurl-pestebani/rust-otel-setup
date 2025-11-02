@@ -1,6 +1,6 @@
 [package]
 name = "rust-otel-setup"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Pablo Esteban <pab.est.pe@gmail.com>"]
 edition = "2024"
 description = "Rust package for setting up tracing and logging efficiently"
