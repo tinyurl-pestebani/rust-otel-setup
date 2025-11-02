@@ -69,9 +69,11 @@ impl GCPAuthenticationInterceptor {
         let credentials = Builder::default().build();
 
         // Get the headers containing the access token
-        let headers = credentials?
+        let headers = credentials
+            .map_err(|e| anyhow::anyhow!("Error creating auth credentials: {:?}", e))?
             .headers(tonic::Extensions::new())
-            .await?;
+            .await
+            .map_err(|e| anyhow::anyhow!("Error creating auth headers: {:?}", e))?;
 
 
         let token = get_token_from_headers(headers);
@@ -86,7 +88,7 @@ impl GCPAuthenticationInterceptor {
     /// # Returns
     /// A `Result<()>` indicating success or failure of the authentication process.
     async fn authenticate(&self) -> Result<()>{
-        let token = Self::get_new_token().await?;
+        let token = Self::get_new_token().await.map_err(|e| anyhow::anyhow!("Error retrieving new token: {:?}", e))?;
 
         let mut w = self.token.write().await;
         *w = token;
@@ -106,7 +108,7 @@ impl GCPAuthenticationInterceptor {
 
         // If more than 10 minutes have passed since last refresh, refresh the token
         if elapsed.as_secs() > 600 {
-            self.authenticate().await?;
+            self.authenticate().await.map_err(|e| anyhow::anyhow!("Error authenticating token: {:?}", e))?;
         }
 
         Ok(self.token.read().await.clone())
