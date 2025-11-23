@@ -1,14 +1,13 @@
 //! # OpenTelemetry Module
 //!
 //! This module provides the main entry point for configuring OpenTelemetry.
-mod tracer;
 mod logger;
 mod resource;
 
 use opentelemetry::trace::TracerProvider;
 use crate::otel::logger::{get_logger, set_logger};
 use anyhow::Result;
-use crate::otel::tracer::get_tracer_provider;
+use crate::tracer::get_tracer_provider;
 
 use opentelemetry_sdk::trace::SdkTracerProvider as SDKTracerProvider;
 use crate::config::{LogConfig, TraceConfig};

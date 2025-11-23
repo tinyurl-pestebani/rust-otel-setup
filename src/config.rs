@@ -15,8 +15,12 @@ pub enum LogConfig {
 /// Enum representing the possible tracing configurations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraceConfig {
-    /// grpc OTLP configuration.
-    OTLP(OTLPTraceConfig),
+    /// HTTP OTLP configuration.
+    HTTP(OTLPTraceConfig),
+    /// gRPC OTLP configuration.
+    GRPC(OTLPTraceConfig),
+    /// gRPC OTLP configuration.
+    REQWEST(OTLPTraceConfig),
     /// Standard output configuration.
     StdOut,
 }
@@ -35,15 +39,25 @@ pub struct LokiConfig {
 pub struct OTLPTraceConfig {
     /// The endpoint for the OTLP collector.
     pub endpoint: String,
-    /// Export traces to GCP via OTLP.
-    pub interceptor: OTLPTraceInterceptor,
+    /// Authorization configuration.
+    pub auth_config: AuthConfig,
 }
 
-/// Enum representing the possible OTLP trace interceptors.
+/// Enum representing the possible authentication configurations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum OTLPTraceInterceptor {
-    GCP,
-    None,
+pub enum AuthConfig {
+    /// GCP authentication.
+    GCPAuth(GCPAuthConfig),
+    /// No authentication.
+    Unauthenticated,
+}
+
+
+/// Struct for GCP authentication configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GCPAuthConfig {
+    /// Google Cloud Project ID.
+    pub project_id: String,
 }
 
 impl LokiConfig {
@@ -58,18 +72,29 @@ impl LokiConfig {
 }
 
 
-impl OTLPTraceInterceptor {
-    /// Creates an `OTLPTraceInterceptor` from environment variables.
+impl AuthConfig {
+    /// Creates an `AuthConfig` from environment variables.
     ///
-    /// The `OTLP_TRACE_INTERCEPTOR` environment variable is used to determine the interceptor type.
-    /// Supported values are "gcp" and "none". If not set, "none" is used as the default.
+    /// The `AUTH_PROVIDER` environment variable is used to determine the authentication provider.
+    /// Supported values are "gcp" and "unauthenticated". If not set, "unauthenticated" is used as the default.
     pub fn from_env() -> Result<Self> {
-        Ok(
-            match std::env::var("OTLP_TRACE_INTERCEPTOR").unwrap_or("none".to_string()).as_str() {
-                "gcp" => OTLPTraceInterceptor::GCP,
-                _ => OTLPTraceInterceptor::None,
-            }
-        )
+        match std::env::var("AUTH_PROVIDER").unwrap_or("unauthenticated".to_string()).as_str() {
+            "gcp" => Ok(AuthConfig::GCPAuth(GCPAuthConfig::from_env()?)),
+            _ => Ok(AuthConfig::Unauthenticated),
+        }
+    }
+}
+
+
+impl GCPAuthConfig {
+    /// Creates a new `GCPAuthConfig` from environment variables.
+    ///
+    /// The `GOOGLE_PROJECT_ID` environment variable is used to determine the GCP project ID.
+    /// If `GOOGLE_PROJECT_ID` is not set, an error is returned.
+    pub fn from_env() -> Result<Self> {
+        let project_id = std::env::var("GOOGLE_PROJECT_ID")
+            .map_err(|_| anyhow!("GOOGLE_PROJECT_ID environment variable not set"))?;
+        Ok(GCPAuthConfig { project_id })
     }
 }
 
@@ -102,8 +127,8 @@ impl OTLPTraceConfig {
     pub fn from_env() -> Result<Self> {
         let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
             .unwrap_or("http://localhost:4317".to_string());
-        let interceptor = OTLPTraceInterceptor::from_env()?;
-        Ok(OTLPTraceConfig { endpoint, interceptor })
+        let auth_config = AuthConfig::from_env()?;
+        Ok(OTLPTraceConfig { endpoint, auth_config })
     }
 }
 
@@ -118,7 +143,9 @@ impl TraceConfig {
     /// If `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, "http://localhost:4317" is used as the default.
     pub fn from_env() -> Result<Self> {
         match std::env::var("OTEL_EXPORTER_TRACES").unwrap_or("stdout".to_string()).as_str() {
-            "grpc" => Ok(TraceConfig::OTLP(OTLPTraceConfig::from_env()?)),
+            "grpc" => Ok(TraceConfig::GRPC(OTLPTraceConfig::from_env()?)),
+            "http" => Ok(TraceConfig::HTTP(OTLPTraceConfig::from_env()?)),
+            "reqwest" => Ok(TraceConfig::REQWEST(OTLPTraceConfig::from_env()?)),
             "stdout" => Ok(TraceConfig::StdOut),
             _ => Err(anyhow!("Unsupported trace config or not set")),
         }

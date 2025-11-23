@@ -4,4 +4,6 @@
 //! It provides a simple way to set up OpenTelemetry with logging and tracing capabilities.
 pub mod otel;
 pub mod config;
-mod authentication;
+mod tracer;
+mod auth;
+pub mod resource;

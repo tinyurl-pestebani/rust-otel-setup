@@ -1,19 +1,18 @@
 use std::sync::Arc;
+use async_trait::async_trait;
 use google_cloud_auth::credentials::{Builder, CacheableResource};
 use tokio::sync::RwLock;
-use tokio::runtime::Runtime;
-use anyhow::Result;
 use tonic::codegen::http::header::AUTHORIZATION;
 use tonic::codegen::http::HeaderMap;
+use anyhow::Result;
+use crate::auth::GetToken;
+use crate::config::GCPAuthConfig;
 
-
-/// `GCPAuthenticationInterceptor` is a gRPC interceptor that handles authentication
-/// using Google Cloud Platform (GCP) credentials.
-/// It automatically retrieves and refreshes access tokens as needed.
-#[derive(Clone, Debug)]
-pub struct GCPAuthenticationInterceptor {
+#[derive(Debug, Clone)]
+pub struct GcpAuthProvider {
     token: Arc<RwLock<String>>,
     last_refresh: Arc<RwLock<std::time::SystemTime>>,
+    project_id: String,
 }
 
 
@@ -35,29 +34,29 @@ fn get_token_from_headers(headers: CacheableResource<HeaderMap>) -> Option<Strin
 }
 
 
-/// Implementation of GCPAuthenticationInterceptor
-/// Provides methods for creating a new interceptor, authenticating,
-/// and retrieving/updating tokens.
-impl GCPAuthenticationInterceptor {
-    /// Creates a new instance of `GCPAuthenticationInterceptor`.
+impl GcpAuthProvider {
+    /// Creates a new instance of `GcpAuthProvider`.
     /// # Arguments
     /// * `token` - An `Arc<RwLock<String>>` to hold the access token.
     /// * `last_refresh` - An `Arc<RwLock<SystemTime>>` to track the last refresh time.
+    /// * `project_id` - A `String` representing the GCP project ID.
     /// # Returns
-    /// A new `GCPAuthenticationInterceptor` instance.
-    fn new(token: Arc<RwLock<String>>, last_refresh: Arc<RwLock<std::time::SystemTime>>) -> Self {
-        Self { token , last_refresh}
+    /// A new `GcpAuthProvider` instance.
+    fn new(token: Arc<RwLock<String>>, last_refresh: Arc<RwLock<std::time::SystemTime>>, project_id: String) -> Self {
+        Self { token , last_refresh, project_id}
     }
 
-    /// Creates a new instance of `GCPAuthenticationInterceptor` with default values.
+    /// Creates a new instance of `GcpAuthProvider` with default values.
     /// The token is initialized as an empty string, and the last refresh time is set to
     /// the UNIX epoch.
+    /// # Arguments
+    /// * `config` - A reference to `GCPAuthConfig` containing configuration details
     /// # Returns
-    /// A new `GCPAuthenticationInterceptor` instance with default values.
-    pub fn new_with_default() -> Self {
+    /// A new `GcpAuthProvider` instance with default values.
+    pub fn new_with_default(config: &GCPAuthConfig) -> Self {
         let token: Arc<RwLock<String>> = Arc::new(RwLock::new(String::new()));
         let last_refresh: Arc<RwLock<std::time::SystemTime>> = Arc::new(RwLock::new(std::time::SystemTime::from(std::time::UNIX_EPOCH)));
-        Self::new(token, last_refresh)
+        Self::new(token, last_refresh, config.project_id.clone())
 
     }
 
@@ -87,7 +86,7 @@ impl GCPAuthenticationInterceptor {
     /// Authenticates and updates the access token.
     /// # Returns
     /// A `Result<()>` indicating success or failure of the authentication process.
-    async fn authenticate(&self) -> Result<()>{
+    async fn authenticate(&self) -> anyhow::Result<()> {
         let token = Self::get_new_token().await.map_err(|e| anyhow::anyhow!("Error retrieving new token: {:?}", e))?;
 
         let mut w = self.token.write().await;
@@ -116,28 +115,12 @@ impl GCPAuthenticationInterceptor {
 }
 
 
-/// Implementation of the tonic Interceptor trait for GCPAuthenticationInterceptor
-impl tonic::service::Interceptor for GCPAuthenticationInterceptor {
-    fn call(&mut self, mut req: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
-        let rt = Runtime::new()?;
-        let token = rt.block_on(async {self.get_and_update_token().await}).map_err(|err| {tonic::Status::unauthenticated(format!("{}", err))})?;
-
-        let metadata_value = format!("Bearer {}", token);
-
-        req.metadata_mut().insert(
-            "authorization",
-            metadata_value.parse().map_err(|e| {
-                tonic::Status::internal(format!("Failed to parse metadata value: {}", e))
-            })?,
-        );
-
-        let google_project_id = std::env::var("GOOGLE_PROJECT_ID").map_err(|e| {
-            tonic::Status::internal(format!("Failed to get GOOGLE_PROJECT_ID: {}", e))
-        })?;
-
-        req.metadata_mut().insert(
-            "x-goog-user-project",
-            google_project_id.parse().unwrap());
-        Ok(req)
+/// Implements the `GetToken` trait for `GcpAuthProvider`.
+#[async_trait]
+impl GetToken for GcpAuthProvider {
+    async fn get_auth_headers(&self) -> Result<Vec<(String, String)>> {
+        let token = self.get_and_update_token().await?;
+        Ok(vec![("authorization".to_string(), format!("Bearer {}", token)),
+                ("x-goog-user-project".to_string(), self.project_id.clone())])
     }
 }
